@@ -3,7 +3,10 @@ layout: post
 title:  "Plaid CTF 2017 - gameboy"
 date:   2017-04-23 23:43:49 -0400
 categories: ctf gameboy
+comments: true
 ---
+
+{% include disqus.html %}
 
 <img src="/assets/1024px-Game-Boy-FL.jpg" width="204" heigth="248" >
 
@@ -201,3 +204,4 @@ The nonstandard XOR instruction can be assembled using `DB $EB`.
 [python script]: /files/ctf/gameboy/gameboy.py
 [gameboy assembly]: /files/ctf/gameboy/gameboy.asm
 [rgbds build script]: /files/ctf/gameboy/build.sh
+
