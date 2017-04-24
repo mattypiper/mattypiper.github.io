@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?><feed xmlns="http://www.w3.org/2005/Atom" ><generator uri="https://jekyllrb.com/" version="3.4.3">Jekyll</generator><link href="http://localhost:4000/feed.xml" rel="self" type="application/atom+xml" /><link href="http://localhost:4000/" rel="alternate" type="text/html" /><updated>2017-04-24T12:40:45-04:00</updated><id>http://localhost:4000/</id><title type="html">Matt’s Website</title><subtitle>technology, programming, CTFs
+</subtitle><entry><title type="html">Plaid CTF 2017 - gameboy</title><link href="http://localhost:4000/ctf/gameboy/2017/04/23/plaid-ctf-gameboy.html" rel="alternate" type="text/html" title="Plaid CTF 2017 - gameboy" /><published>2017-04-23T23:43:49-04:00</published><updated>2017-04-23T23:43:49-04:00</updated><id>http://localhost:4000/ctf/gameboy/2017/04/23/plaid-ctf-gameboy</id><content type="html" xml:base="http://localhost:4000/ctf/gameboy/2017/04/23/plaid-ctf-gameboy.html">&lt;p&gt;&lt;img src=&quot;/assets/1024px-Game-Boy-FL.jpg&quot; width=&quot;204&quot; heigth=&quot;248&quot; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Author: mattypiper&lt;/p&gt;
+
+&lt;p&gt;Contributors: mattypiper, nopple, fringe, other team members&lt;/p&gt;
+
+&lt;h2 id=&quot;background&quot;&gt;Background&lt;/h2&gt;
+
+&lt;p&gt;The &lt;a href=&quot;/files/ctf/gameboy/gameboy_c7a4e5cde2194af9b66aa5fbc724c785.tar.gz&quot;&gt;challenge tar.gz&lt;/a&gt; contains a Gameboy (LR35902) emulator, a sample ROM, and output from dpkg -l. The emulator is a
+64-bit position independent ELF executable. ROMs are read from stdin. The LCD screen is implemented by way of an ASCII
+art style output, and buttons are read from stdin after the ROM is loaded - WASD for the D-Pad and UJIK for Start,
+Select, A, and B.
+The ROM included in the tar.gz is Apocalypse Now, which is available on the Internet with a 
+matching MD5, so not of interest. The dpkg listing will eventually help with identifying the
+libc version on the server.&lt;/p&gt;
+
+&lt;h2 id=&quot;bugs&quot;&gt;Bugs&lt;/h2&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;
+    &lt;p&gt;Providing a 16-character ROM name will leak the address of the PIE’s code section to stdout.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;A custom opcode 0xED was added to the emulator’s instruction set which performs an &lt;code class=&quot;highlighter-rouge&quot;&gt;XOR ($FF00 + C), A&lt;/code&gt;. &lt;code class=&quot;highlighter-rouge&quot;&gt;$FF00&lt;/code&gt; is
+the IO port region, so this instruction provides a way to write to the IO ports with an 8-bit operand, similar to other
+standard instructions like &lt;code class=&quot;highlighter-rouge&quot;&gt;LD ($FF00+C), A&lt;/code&gt;. However, the C operand is interpreted as a signed quantity, allowing
+effectively: &lt;code class=&quot;highlighter-rouge&quot;&gt;XOR (C), A&lt;/code&gt; where C is in the range [-128, 127]. This allows addressing “negative” memory.&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h2 id=&quot;exploit&quot;&gt;Exploit&lt;/h2&gt;
+
+&lt;p&gt;The emulator implements a state structure, containing pointers to various things and the LR35902 registers, and a 64KB
+ROM space. The state structure and ROM space are allocated together in the heap:&lt;/p&gt;
+
+&lt;div class=&quot;highlighter-rouge&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;+---------------+
+|     ...       |   &amp;lt;-- heap base
++---------------+  
+|  ptr_emu_mem  |   &amp;lt;-- base + 0x10, points to base + 0x80 (ROM space)
++---------------+
+|  ptr_oam_mem  |
++---------------+
+|     ...       |
+| other stuff   |
+|     ...       | 
++---------------+
+|               |
+| emu registers |
+|               |
++---------------+
+|               |
+|               |
++---------------+
+|   ROM space   |   &amp;lt;-- base + 0x80
+|     ...       |
+|     ...       |
++---------------+
+&lt;/code&gt;&lt;/pre&gt;
+&lt;/div&gt;
+
+&lt;p&gt;If we start with an end goal of overwriting a Global Offset Table (GOT) pointer as a means of getting a shell, we need
+to create a GameBoy ROM that writes to the GOT. From bug #1, we have a pointer to the PIE base, so we can calculate
+where the GOT is based on that. But there’s one problem. The pointer is written to stdout &lt;em&gt;after&lt;/em&gt; the ROM is sent to
+emulator. So there’s no way for the ROM to know the PIE base address without somehow writing it back to stdin. The only
+IO available is the ASCII art LCD screen and the joypad input. So, the first thing the ROM needs to do is read the
+pointer from its “standard input”, aka the joypad. With some clever Python and LR35902 ROM code, we can encode 2-bits at
+a time onto the WASD joypad, and write that information into the emulator’s stdin using the WASD controls.
+The &lt;a href=&quot;http://bgb.bircd.org/pandocs.htm#joypadinput&quot;&gt;joypad input&lt;/a&gt; can be read at register &lt;code class=&quot;highlighter-rouge&quot;&gt;$FF00&lt;/code&gt; by
+first selecting the directional pad, and then reading the value. We store the leaked pointer off into Game Boy
+RAM for later usage.&lt;/p&gt;
+
+&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-nasm&quot; data-lang=&quot;nasm&quot;&gt;    &lt;span class=&quot;c&quot;&gt;; select directional pad&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;LD&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;A&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;err&quot;&gt;$&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;20&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;LD&lt;/span&gt; &lt;span class=&quot;err&quot;&gt;[$&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;FF00&lt;/span&gt;&lt;span class=&quot;err&quot;&gt;]&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;A&lt;/span&gt;
+
+    &lt;span class=&quot;c&quot;&gt;; read value&lt;/span&gt;
+    &lt;span class=&quot;n&quot;&gt;LD&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;A&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;err&quot;&gt;[$&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;FF00&lt;/span&gt;&lt;span class=&quot;err&quot;&gt;]&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
+
+&lt;p&gt;Now that the GameBoy code knows where the GOT is, we need a way to write there. If we use bug #2, we can write
+backwards from the start of ROM and corrupt the emulator state. At this point, there is a choice to make
+about which byte of the emulator state to corrupt first. We opted to change &lt;em&gt;ptr_emu_mem&lt;/em&gt; to rebase the emulator ROM
+down by 0x80. This way the GB code can read/write the emulator state directly with simple LD instructions targeting
+addresses around 0. A single &lt;code class=&quot;highlighter-rouge&quot;&gt;XOR ($FF00 + $90), $80&lt;/code&gt; instruction changes the low byte of &lt;em&gt;ptr_emu_mem&lt;/em&gt; for 0x80 to
+0x00, and the ROM is rebased.&lt;/p&gt;
+
+&lt;p&gt;There are a few side effects of rebasing the GameBoy ROM that we had to consider.&lt;/p&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;On the next cycle of the emulator, the next instruction will be fetched 0x80 bytes lower than the
+previous PC. Prepare for this by placing a landing pad there.&lt;/li&gt;
+  &lt;li&gt;All of GameBoy memory is remapped down by 0x80. This includes the IO ports at 0xFF00.
+The emulator checks the value of certain IO registers every iteration. Due to the rebase, the values of all the IO
+registers have probably changed from their initial value to zero. This causes a few things to go awry, but nothing that
+crashes the emulator, and our GB code continues on.&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;So now we’ve rebased and we can change any of the pointers in the emulator state block. Back to our goal of
+overwriting the GOT. From earlier RE of the emulator, we knew there was a DMA transfer operation that would
+copy 160 bytes from any GB ROM page to the “Object Attribute Memory” or OAM. The OAM is
+mapped at 0xFE00 in the device, so it could simply be accessed with offset 0xFE00 from &lt;em&gt;ptr_emu_mem&lt;/em&gt;. But instead, the
+emulator implemented the DMA transfer using a separate pointer specifically for performing DMA transfers. Now that the
+emulator state block is mapped into GB ROM, we can change the OAM pointer to anywhere in 64-bit process memory, including
+outside of the GameBoy’s usual 16-bit boundary. After changing the pointer with a few LD instructions, we simply
+initiate a DMA transfer, using &lt;code class=&quot;highlighter-rouge&quot;&gt;LDH [$FF46], A&lt;/code&gt;, and we get a 160 byte copy from the GB ROM space to anywhere. Now we
+have a good write primitive.&lt;/p&gt;
+
+&lt;p&gt;The next problem is reading the GOT. In order to update the GOT with some other libc address, we need to know
+where libc is loaded in memory. But all we have so far is a write primitive, not a read primitive.&lt;/p&gt;
+
+&lt;p&gt;We thought for a few minutes and could not come up with an easy way to read outside of emulator ROM space. There was
+much deliberation (and groaning) about the potential of using the LCD screen to leak the GOT back to stdout, and then
+push the leaked GOT pointer back to the GB ROM code using the WASD D-Pad again. This is possible because we could
+also change the video memory and display buffer pointers in the emulator state. So I’m sure that would work, and I really
+hope other teams attempted this, but after reading about tiles, palettes, and parsing the ASCII screen, I sought
+other avenues.&lt;/p&gt;
+
+&lt;p&gt;Another option that was apparent was to rebase the ROM again. We’d already done it once. If we rebased the ROM
+down to the read/write data section of the x64 PIE and restart the emulator, we would have read/write access
+to the GOT by placing the GameBoy’s 64KB “window” around the GOT. We were a bit adverse to this idea at first
+because we might lose control of the emulator state block. But it turned out that isn’t really true.
+We could’ve saved off a heap pointer used a DMA transfer to maintain control of the emulator state.
+But it turned out that this is the last rebase and we didn’t need the emulator state anymore.&lt;/p&gt;
+
+&lt;p&gt;Rebasing again requires us to have code ready for the emulator when it starts up again in the new location.
+So we first use another DMA transfer to copy code from GB ROM space to the x64 PIE data section,
+then rebase the 64KB GB memory.&lt;/p&gt;
+
+&lt;p&gt;Rebasing was trivial the first time because it was a one byte adjustment to &lt;em&gt;ptr_emu_mem&lt;/em&gt;, which can be accomplished using
+a GameBoy 8-bit memory write. To rebase from the heap to the PIE requires a multibyte write; an “atomic” update, if you
+will. If we were to change only one byte of &lt;em&gt;ptr_emu_mem&lt;/em&gt; in a GB instruction, essentially the emulator is rebased
+immediately at the next cycle when it goes to fetch PC. The heap and the Position Independent Executable are too far
+away for a one-byte write to be useful. So, back to our friend, DMA transfer. If we make a copy of the emulator state in
+GB RAM, we can change &lt;em&gt;ptr_emu_mem&lt;/em&gt; without causing havoc, and then “atomically” write the state copy back to its
+real location using the memcpy provided by the DMA transfer. While we’re mucking around with the emulator state object,
+we can also fix the emulator’s PC register to point to where it needs to be after the rebase is complete.&lt;/p&gt;
+
+&lt;p&gt;We chose addresses such that our code would be copied right after the GOT table. We had to be careful to make
+sure the IO ports at 0xFF00 were still mapped so as not to crash the process. With some careful selection of both the GB
+ROM base and the emulator PC, we were able to get the emulator to continue execution inside of its ROM space, but
+mapped into the data segment of the x64 PIE. Once this was accomplished, we could read and write to the GOT directly
+using GameBoy LD instructions.&lt;/p&gt;
+
+&lt;p&gt;For the GOT overwrite, we chose usleep as our target, as it is executed periodically by the emulator. For the value to
+overwrite, we used a pointer to a system(“/bin/sh”) gadget already inside of libc. This gadget is in the
+&lt;code class=&quot;highlighter-rouge&quot;&gt;do_system&lt;/code&gt; function of libc, and effectively allows for a single GOT pointer overwrite to give you a shell.
+Note that we had to update the offset to this gadget based on whether we were testing on a local system or sending
+to the Plaid CTF challenge server.&lt;/p&gt;
+
+&lt;figure class=&quot;highlight&quot;&gt;&lt;pre&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;&lt;span class=&quot;gp&quot;&gt;gdb-peda$ &lt;/span&gt;x/10i 0x00007ffff7a5847c
+   0x7ffff7a5847c &amp;lt;do_system+956&amp;gt;:	mov    rax,QWORD PTR &lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;rip+0x37aa25]        &lt;span class=&quot;c&quot;&gt;# 0x7ffff7dd2ea8&lt;/span&gt;
+   0x7ffff7a58483 &amp;lt;do_system+963&amp;gt;:	lea    rdi,[rip+0x139c79]        &lt;span class=&quot;c&quot;&gt;# 0x7ffff7b92103&lt;/span&gt;
+   0x7ffff7a5848a &amp;lt;do_system+970&amp;gt;:	lea    rsi,[rsp+0x30]
+   0x7ffff7a5848f &amp;lt;do_system+975&amp;gt;:	mov    DWORD PTR &lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;rip+0x37d227],0x0        &lt;span class=&quot;c&quot;&gt;# 0x7ffff7dd56c0 &amp;lt;lock&amp;gt;&lt;/span&gt;
+   0x7ffff7a58499 &amp;lt;do_system+985&amp;gt;:	mov    DWORD PTR &lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;rip+0x37d22d],0x0        &lt;span class=&quot;c&quot;&gt;# 0x7ffff7dd56d0 &amp;lt;sa_refcntr&amp;gt;&lt;/span&gt;
+   0x7ffff7a584a3 &amp;lt;do_system+995&amp;gt;:	mov    rdx,QWORD PTR &lt;span class=&quot;o&quot;&gt;[&lt;/span&gt;rax]
+   0x7ffff7a584a6 &amp;lt;do_system+998&amp;gt;:	call   0x7ffff7ad6d20 &amp;lt;__execve&amp;gt;
+&lt;span class=&quot;gp&quot;&gt;gdb-peda$ &lt;/span&gt;x/s 0x7ffff7b92103
+0x7ffff7b92103:	&lt;span class=&quot;s2&quot;&gt;&quot;/bin/sh&quot;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/figure&gt;
+
+&lt;h4 id=&quot;other-useful-tidbits&quot;&gt;Other useful tidbits:&lt;/h4&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;
+    &lt;p&gt;To help debugging, it’s useful to have ways to inspect the emulator state and operation. The state block is always fixed
+at &lt;code class=&quot;highlighter-rouge&quot;&gt;heap_base + 0x10&lt;/code&gt;, so no tricks required there. It was trivial to examine the emulator program counter and other
+registers at any point in time. But it’s also good to jot down the address (PIC offset) of certain key emulator
+instructions. In our case, I often set GDB breakpoints on instruction handlers for the 0xED XOR opcode address (0x1A27),
+the memcpy address of the DMA transfer (0xF32), as well as the overarching “next instruction fetch unit” of the emulator
+(0x118D).  Especially when rebasing, breaking in GDB at the instruction fetcher (0x118D) gives us the PC in $RAX, and
+&lt;code class=&quot;highlighter-rouge&quot;&gt;x/16bx $r8&lt;/code&gt; gives us the next 16 op codes of the program. However, breaking at every emulated instruction is too slow,
+so it’s also good to be ready with breakpoints at other key points in the program like the XOR and the DMA.
+Additionally, it helped to sprinkle the GameBoy code liberally with breakpoints, to inspect the program state
+before and after things  like DMA transfers.
+For a “GameBoy Breakpoint”, choose an instruction with few side effects, such as the clear flags
+register instruction &lt;code class=&quot;highlighter-rouge&quot;&gt;CCF&lt;/code&gt; at 0x2A43. Then I just put the CCF instruction anywhere I needed to stop the emulator and
+inspect things.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;Turn off ASLR for most of development.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;We used &lt;a href=&quot;https://github.com/rednex/rgbds&quot;&gt;rgbds&lt;/a&gt; to assemble, link, and fix our ROMs.
+The nonstandard XOR instruction can be assembled using &lt;code class=&quot;highlighter-rouge&quot;&gt;DB $EB&lt;/code&gt;.&lt;/p&gt;
+  &lt;/li&gt;
+  &lt;li&gt;
+    &lt;p&gt;The &lt;a href=&quot;http://pastraiser.com/cpu/gameboy/gameboy_opcodes.html&quot;&gt;LR35902 opcode table&lt;/a&gt; and &lt;a href=&quot;http://bgb.bircd.org/pandocs.htm&quot;&gt;BGB documentation&lt;/a&gt; were invaluable while working on this challenge.&lt;/p&gt;
+  &lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;solution-files&quot;&gt;Solution Files&lt;/h2&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;a href=&quot;/files/ctf/gameboy/gameboy.py&quot;&gt;Python script&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;/files/ctf/gameboy/gameboy.asm&quot;&gt;Gameboy assembly&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;/files/ctf/gameboy/build.sh&quot;&gt;rgbds build script&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&quot;flag&quot;&gt;Flag&lt;/h2&gt;
+
+&lt;p&gt;&lt;code class=&quot;highlighter-rouge&quot;&gt;PCTF{gameboy?_thats_sexist_why_isnt_it_just_gamechild?}&lt;/code&gt;&lt;/p&gt;</content><author><name></name></author><summary type="html"></summary></entry></feed>
