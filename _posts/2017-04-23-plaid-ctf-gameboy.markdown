@@ -6,8 +6,6 @@ categories: ctf gameboy
 comments: true
 ---
 
-{% include disqus.html %}
-
 <img src="/assets/1024px-Game-Boy-FL.jpg" width="204" heigth="248" >
 
 Author: mattypiper
