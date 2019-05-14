@@ -19,9 +19,7 @@ and executes the wasm program in a seccomp filtered sandbox. After figuring out 
 C using wasi-sdk, we were able to load our code into the service using base64. The service then responds with an error message expecting
 a certain export that was not found:
 
-```
-your code makes me feel funny: unable to resolve entry point: Export not found: this_is_what_ive_got
-```
+> your code makes me feel funny: unable to resolve entry point: Export not found: this_is_what_ive_got
 
 Defining this function in C and setting it as the entry point allows the code to execute.
 
@@ -40,9 +38,7 @@ Gloryhost appears to print the return value of your function and execute the C c
 Attempting to execute libc functions such as `open()` and `read()`
 results in the service dying prematurely with a trap:
 
-```
-your code makes me feel funny: unable to execute entry point: WebAssembly trap occured during runtime: unknown
-```
+> your code makes me feel funny: unable to execute entry point: WebAssembly trap occured during runtime: unknown
 
 The service disables syscalls with seccomp, hence the WebAssembly trap. At this point we discovered a set of functions in the
 gloryhost name space that were interesting.
@@ -61,16 +57,12 @@ The `wasi_get_data` functions were only provided for data2 thru data5, but the S
 Getting the function arguments and return values to line up was aided by the dynamic WebAssembly linker, which would print
 messages such as:
 
-```
-your code makes me feel funny: unable to resolve entry point: Parameters of type [] did not match signature [I32] -> [I32]
-```
+> your code makes me feel funny: unable to resolve entry point: Parameters of type [] did not match signature [I32] -> [I32]
 
 For getting the flag itself, the only instrument provided to send data back to the client was via the 32-bit return value
 of the `this_is_what_ive_got` function. For example, returning 0xdeadbeef would print:
 
-```
-YOU'VE GOT deadbeef
-```
+> YOU'VE GOT deadbeef
 
 We based our Spectre implementation on an
 [existing Spectre PoC from ErikAugust](https://gist.github.com/ErikAugust/724d4a969fb2c6ae1bbd7b2a9e3d4bb6).
