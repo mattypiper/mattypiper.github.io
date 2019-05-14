@@ -41,7 +41,7 @@ results in the service dying prematurely with a trap:
 > your code makes me feel funny: unable to execute entry point: WebAssembly trap occured during runtime: unknown
 
 The service disables syscalls with seccomp, hence the WebAssembly trap. At this point we discovered a set of functions in the
-gloryhost name space that were interesting.
+gloryhost namespace that were interesting.
 
 1. `wasi_debug_flush` executes the x86 clflush instruction on the pointer argument
 1. `wasi_check_data`, `wasi_get_data_size` and the`wasi_get_data*` functions were recognized as a set of functions that implement
@@ -49,18 +49,22 @@ a few of the "primitives" required to execute the [Spectre](https://spectreattac
 1. `wasi_debug_read` performs a C-style read of the pointer argument, required for Spectre.
 1. `wasi_debug_ts` executes the x86 `rdtsc` instruction, a timing instrument that can be used to execute the Spectre attack.
 
-At this point, we laid out the plan: use the gloryhost/wasi functions from our C code to implement Spectre.
-Inspection with strace and gdb revealed that the flag was being loaded into the .bss entry `_data6` at 0xe86120.
-The `wasi_get_data` functions were only provided for data2 thru data5, but the Spectre primitives could be used to read
-`_data6`. After some struggling with the wasi toolchain and learning about wasm in general, we were able to call the
-`gloryhost::wasi` functions from our C code by defining the functions as `extern` and linking with `-Wl,--allow-undefined`.
-Getting the function arguments and return values to line up was aided by the dynamic WebAssembly linker, which would print
-messages such as:
+Inspection with strace and gdb revealed that the challenge flag was being loaded into the .bss entry `_data6` at 0xe86120.
+This memory is inaccessible using the `wasi_get_data` functions, as they were only provided for memory areas data2 thru data5.
+
+At this point, we laid out the plan: Call the `gloryhost::wasi` functions from our C code in a Spectre-style attack
+to read the flag from memory.
+
+After learning about wasm, wasi, wat, and fumbling around with a variety of build tools, we settled on 
+using [wasi-sdk](https://github.com/CraneStation/wasi-sdk/) to generate wasm blobs from C code.
+To call the external code, we had to define the functions as `extern` and use the linker directive 
+`-Wl,--allow-undefined` to avoid link errors. Getting the function arguments and return values to line up
+was aided by the dynamic WebAssembly linker built into gloryhost, which printed helpful messages such as:
 
 > your code makes me feel funny: unable to resolve entry point: Parameters of type [] did not match signature [I32] -> [I32]
 
 For getting the flag itself, the only instrument provided to send data back to the client was via the 32-bit return value
-of the `this_is_what_ive_got` function. For example, returning 0xdeadbeef would print:
+of the `this_is_what_ive_got` function. For example, returning 0xdeadbeef from `this_is_what_ive_got` would print:
 
 > YOU'VE GOT deadbeef
 
@@ -68,7 +72,7 @@ We based our Spectre implementation on an
 [existing Spectre PoC from ErikAugust](https://gist.github.com/ErikAugust/724d4a969fb2c6ae1bbd7b2a9e3d4bb6).
 
 As we implemented the Spectre attack, we had to take care to avoid using pointers or array indexing. This was because
-the wasi-sdk only supported 32-bit mode. So we defined the functions as follows:
+the wasi-sdk only supported 32-bit mode. So we wrote the function prototypes replacing pointers with uint64_t, as follows:
 
 ```c
 extern int64_t debug_ts();  // rdtsc
