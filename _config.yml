@@ -26,11 +26,12 @@ github_username:  mattypiper
 markdown: kramdown
 theme: minima
 
-gems:
+plugins:
   - jekyll-feed
 exclude:
   - Gemfile
   - Gemfile.lock
+  - _posts/2019-04-17-ultimate-air-shuttle.md
 
 disqus_shortname: mattypiper
 
