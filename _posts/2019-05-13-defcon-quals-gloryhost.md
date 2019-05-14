@@ -55,8 +55,6 @@ This memory is inaccessible using the `wasi_get_data` functions, as they were on
 At this point, we laid out the plan: Call the `gloryhost::wasi` functions from our C code in a Spectre-style attack
 to read the flag from memory.
 
-After learning about wasm, wasi, wat, and fumbling around with a variety of build tools, we settled on 
-using [wasi-sdk](https://github.com/CraneStation/wasi-sdk/) to generate wasm blobs from C code.
 To call the external code, we had to define the functions as `extern` and use the linker directive 
 `-Wl,--allow-undefined` to avoid link errors. Getting the function arguments and return values to line up
 was aided by the dynamic WebAssembly linker built into gloryhost, which printed helpful messages such as:
