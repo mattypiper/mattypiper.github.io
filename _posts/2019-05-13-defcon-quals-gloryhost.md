@@ -2,7 +2,7 @@
 layout: post
 title: DEFCON Quals 2019, Gloryhost
 date:   2019-05-13 18:43:49 -0400
-categories: ctf spectre webassembly
+categories: ctf defcon quals 2019
 comments: true
 ---
 
