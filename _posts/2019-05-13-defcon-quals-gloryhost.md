@@ -34,8 +34,8 @@ int this_is_what_ive_got()
 /opt/wasi-sdk/bin/clang -o test.wasm -Wl,-e,this_is_what_ive_got test.c
 ```
 
-Gloryhost appears to print the return value of your function and execute the C code.
-Attempting to execute libc functions such as `open()` and `read()`
+Gloryhost appears to execute the function and even prints the return value back to the client.
+However, attempting to execute libc functions such as `open()` and `read()`
 results in the service dying prematurely with a trap:
 
 > your code makes me feel funny: unable to execute entry point: WebAssembly trap occured during runtime: unknown
