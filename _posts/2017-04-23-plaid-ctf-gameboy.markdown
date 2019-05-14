@@ -2,7 +2,7 @@
 layout: post
 title:  "Plaid CTF 2017 - gameboy"
 date:   2017-04-23 23:43:49 -0400
-categories: ctf plaid 2017
+categories: ctf plaid
 comments: true
 ---
 
